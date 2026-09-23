@@ -1,0 +1,35 @@
+{
+  "database": "~/.local/share/agent-timeline/agents.sqlite3",
+  "other_topic": "other",
+  "topics": [
+    {"name": "planning", "keywords": ["roadmap", "planning", "milestone"]},
+    {"name": "research", "keywords": ["research", "paper", "analysis"]},
+    {"name": "building", "keywords": ["implementation", "build", "code"]},
+    {"name": "operations", "keywords": ["deploy", "monitor", "maintenance"]},
+    {"name": "other", "keywords": []}
+  ],
+  "paths": {
+    "transcripts": {
+      "codex": ["~/.codex/sessions"],
+      "claude": ["~/.claude/projects"],
+      "opencode": ["~/.local/share/opencode/storage/session", "~/.config/opencode/storage/session"]
+    },
+    "job_roots": [],
+    "opencode_database": null,
+    "hermes_sessions": null,
+    "hermes_cron_database": null,
+    "hermes_cron_directory": null,
+    "process_collector": null
+  },
+  "job_prompt_file": "PROMPT.md",
+  "job_result_files": ["RESULT.md", "OUTPUT.md", "STATUS.md"],
+  "classifier": {},
+  "systemd": {
+    "enabled": false,
+    "filter_version": "1",
+    "job_unit_prefixes": ["agent-", "job-", "codex-", "claude-", "opencode-"],
+    "exclude_units": [],
+    "exclude_unit_substrings": ["agent-timeline"]
+  },
+  "cron": {"enabled": false}
+}

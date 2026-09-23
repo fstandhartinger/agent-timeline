@@ -1,0 +1,17 @@
+[Unit]
+Description=Collect agent history into the Agent Timeline SQLite database
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/Dev/agent-timeline
+ExecStart=/usr/bin/python3 %h/Dev/agent-timeline/collector.py --db %h/.local/share/agent-timeline/agents.sqlite3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.local/share/agent-timeline
+Environment=AGENT_TIMELINE_CONFIG=%h/Dev/agent-timeline/config.local.json
+ReadOnlyPaths=%h/Dev/agent-timeline
+MemoryMax=3G
+TimeoutStartSec=7200

@@ -1,0 +1,10 @@
+.env
+.env.*
+config.local.json
+config.json
+*.sqlite*
+*.db
+__pycache__/
+*.py[cod]
+screenshots/
+.DS_Store

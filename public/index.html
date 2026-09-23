@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <meta name="theme-color" content="#10141d">
+  <title>Agent Timeline</title>
+  <link rel="stylesheet" href="/app.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <div id="login-screen" class="login-screen">
+    <div class="login-orbit orbit-a"></div><div class="login-orbit orbit-b"></div>
+    <form id="login-form" class="login-card">
+      <div class="brand-mark"><span class="brand-dot"></span><span>AGENT ATLAS</span></div>
+      <div class="eyebrow">PRIVATE WORKSPACE</div>
+      <h1>Follow the work.</h1>
+      <p class="login-copy">A living map of agents, subagents and the projects they move through.</p>
+      <label for="username">Username</label>
+      <input id="username" name="username" type="text" placeholder="Your username" autocomplete="username" required>
+      <label for="password">Password</label>
+      <div class="password-input-wrap"><input id="password" name="agent-timeline-password" type="text" class="masked" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-form-type="other" data-1p-ignore data-lpignore="true" data-bwignore required><button id="password-toggle" class="password-toggle" type="button" aria-label="Show password" aria-pressed="false">◉</button></div>
+      <div id="login-error" class="login-error" role="alert"></div>
+      <button type="submit" class="primary-button">Enter timeline <span aria-hidden="true">↗</span></button>
+      <div class="login-lock"><span>●</span> End-to-end TLS · Read-only activity</div>
+    </form>
+  </div>
+
+  <div id="app" class="app-shell" hidden>
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark-small"><i></i><i></i><i></i></span><div><div class="brand-name">AGENT ATLAS</div><div class="brand-sub">TIMELINE / WORKSPACE</div></div></div>
+      <div class="topbar-center"><span class="live-indicator"><i></i> LIVE CAPTURE</span><span class="update-label">REFRESHES EVERY 10 MIN</span></div>
+      <div class="topbar-actions"><button id="theme-toggle" class="icon-button" aria-label="Switch theme" title="Switch theme">◐</button><button id="logout" class="quiet-button">Log out <span aria-hidden="true">↗</span></button></div>
+    </header>
+
+    <main class="page">
+      <section class="intro-row">
+        <div><div class="eyebrow">WORKSPACE / AGENT ACTIVITY</div><h1>Agent timeline<span class="period-mark">.</span></h1><p>Every run, its branches, and the topic behind it.</p></div>
+        <div class="clock-card"><span class="clock-label">LOCAL TIME</span><strong id="clock">--:--:--</strong><span id="today-label">—</span></div>
+      </section>
+
+      <section class="metric-grid" aria-label="Timeline summary">
+        <article class="metric-card"><span class="metric-label">AGENTS IN VIEW</span><strong id="metric-agents">—</strong><span id="metric-range" class="metric-foot">Last 4 weeks</span><span class="metric-orb orb-coral"></span></article>
+        <article class="metric-card"><span class="metric-label">PARENT / CHILD LINKS</span><strong id="metric-links">—</strong><span class="metric-foot">Recorded branches</span><span class="metric-orb orb-violet"></span></article>
+        <article class="metric-card"><span class="metric-label">RUNNING NOW</span><strong id="metric-active">—</strong><span class="metric-foot">Live process sample</span><span class="metric-orb orb-green"></span></article>
+        <article class="metric-card"><span class="metric-label">SUB-PROJECTS</span><strong id="metric-projects">—</strong><span id="metric-collected" class="metric-foot">Waiting for collector</span><span class="metric-orb orb-blue"></span></article>
+      </section>
+
+      <section class="activity-card">
+        <div class="activity-heading"><div><span class="eyebrow">CONCURRENCY / 10 MIN BINS</span><h2>Who was active, when</h2></div><div class="activity-total"><strong id="peak-count">—</strong><span>peak overlap</span></div></div>
+        <div class="activity-chart-wrap"><canvas id="area-chart" aria-label="Concurrent agent count by project"></canvas><div id="area-empty" class="chart-empty" hidden>No activity in this time range.</div></div>
+      </section>
+
+      <section class="controls-row">
+        <div><span class="eyebrow">THE BRANCHING VIEW</span><h2>Work tree <span id="row-count" class="subtle-count">—</span></h2></div>
+        <div class="timeline-controls">
+          <div class="presets" role="group" aria-label="Time range">
+            <button data-range="4w" class="preset selected">4w</button><button data-range="1w" class="preset">1w</button><button data-range="1d" class="preset">1d</button><button data-range="6h" class="preset">6h</button><button data-range="1h" class="preset">1h</button>
+          </div>
+          <button id="zoom-out" class="zoom-button" aria-label="Zoom out">−</button><button id="zoom-in" class="zoom-button" aria-label="Zoom in">+</button>
+          <label class="searchbox"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Find an agent or job"></label>
+        </div>
+      </section>
+
+      <section class="workbench">
+        <aside class="legend-panel">
+          <div class="legend-head"><div><span class="eyebrow">LANES</span><h3>Sub-projects</h3></div><button id="clear-filters" class="text-button">All</button></div>
+          <div id="legend" class="legend-list"></div>
+          <div class="legend-note"><span class="now-key"></span><div><strong>Now line</strong><small>Current moment</small></div></div>
+          <div class="tree-key"><span class="branch-key">└</span><div><strong>Agent branches</strong><small>Hover or tap for details</small></div></div>
+          <div class="source-note"><span class="source-pip"></span><span id="source-status">Loading history…</span></div>
+        </aside>
+        <div class="timeline-panel">
+          <div id="timeline-scroll" class="timeline-scroll" aria-label="Scrollable agent timeline">
+            <canvas id="timeline-canvas" aria-label="Agent tree plotted over time"></canvas>
+            <div id="scroll-spacer" class="scroll-spacer"></div>
+            <div id="tooltip" class="tooltip" hidden></div>
+          </div>
+          <div class="timeline-foot"><span>Drag to move through time · Ctrl/⌘ + wheel to zoom · Scroll to explore branches</span><span id="window-label">—</span></div>
+        </div>
+      </section>
+      <footer class="footer"><span>AGENT ATLAS <b>•</b> READ-ONLY HISTORY</span><span>Built from process ancestry, sessions and job records</span></footer>
+    </main>
+  </div>
+</body>
+</html>

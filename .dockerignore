@@ -1,0 +1,8 @@
+.git
+.env
+.env.*
+*.sqlite*
+*.db
+__pycache__
+*.py[cod]
+screenshots
