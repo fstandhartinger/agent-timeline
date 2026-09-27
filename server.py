@@ -39,10 +39,11 @@ def b64(data: bytes) -> str:
 
 
 def sign_session(username: str, expires: int) -> str:
-    nonce = secrets.token_urlsafe(10)
-    generation = session_generation()
-    payload = f"{username}\n{expires}\n{nonce}\n{generation}".encode()
-    signature = hmac.new(SESSION_SECRET.encode(), payload, hashlib.sha256).digest()
+    with SESSION_STATE_LOCK:
+        nonce = secrets.token_urlsafe(10)
+        generation = session_generation()
+        payload = f"{username}\n{expires}\n{nonce}\n{generation}".encode()
+        signature = hmac.new(SESSION_SECRET.encode(), payload, hashlib.sha256).digest()
     return b64(payload) + "." + b64(signature)
 
 

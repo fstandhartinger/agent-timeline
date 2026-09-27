@@ -40,7 +40,7 @@ python3 server.py --initialize-session-state
 AGENT_TIMELINE_HOST=127.0.0.1 AGENT_TIMELINE_PORT=8890 python3 server.py
 ```
 
-Initialize the persistent session state once before first startup. The initializer migrates the earlier timestamp-cutoff state format while preserving its revoked-cookie cutoff. Normal startup fails closed if the state file is missing or corrupt. Never restore an older copy or recreate this file after a logout: first change the session secret in both Coolify and the API environment, then initialize a fresh state file, which signs out every old cookie. Keep the secret unchanged for normal redeploys. If rolling back to API code that predates generation checks, change the secret in both places before starting it.
+Initialize the persistent session state once before first startup. The initializer migrates the earlier timestamp-cutoff state format while preserving its revoked-cookie cutoff. Normal startup fails closed if the state file is missing or corrupt. Never restore an older copy or recreate this file after a logout: first change the session secret in both Coolify and the API environment, then initialize a fresh state file, which signs out every old cookie. Keep the secret unchanged for normal redeploys. If rolling back to API code that predates generation checks, change the secret in both places before starting it. Changing the username or password alone does not invalidate cookies already issued; rotate the signing secret to revoke every existing session.
 
 In another terminal, build and run the web interface. Nginx serves the static files and proxies API requests to the read-only API:
 
@@ -52,6 +52,8 @@ docker run --rm -p 8080:80 \
 ```
 
 On Linux, add `--add-host=host.docker.internal:host-gateway` to `docker run` if your Docker version does not provide that name. Open `http://localhost:8080`. For production, place the web container behind HTTPS and set `AGENT_TIMELINE_API_UPSTREAM` to a private host address that is reachable only from that container.
+
+The session cookie is always `Secure`. Some browsers may not keep a login on this plain-HTTP local preview; the production site must use HTTPS.
 
 The Docker image contains only Nginx and the static interface. The collector, SQLite database, and API stay outside the web container; the API opens the database read-only and writes a small session-revocation file on logout. Never expose the API port directly to the public internet.
 

@@ -27,10 +27,13 @@ class LoginInputs(HTMLParser):
     def __init__(self):
         super().__init__()
         self.inputs = {}
+        self.login_form = {}
 
     def handle_starttag(self, tag, attrs):
+        values = dict(attrs)
+        if tag == "form" and values.get("id") == "login-form":
+            self.login_form = values
         if tag == "input":
-            values = dict(attrs)
             if "id" in values:
                 self.inputs[values["id"]] = values
 
@@ -202,6 +205,59 @@ class SessionTests(unittest.TestCase):
         status, _, _ = self.request("GET", "/api/session", cookie=cookie)
         self.assertEqual(status, 200)
 
+    def test_login_signing_is_serialized_with_logout(self):
+        cookie = self.login().split(";", 1)[0]
+        signing_started = threading.Event()
+        allow_signing = threading.Event()
+        logout_started = threading.Event()
+        logout_done = threading.Event()
+        login_nonce = []
+        login_result = {}
+        logout_result = {}
+        original_nonce = server.secrets.token_urlsafe
+        original_hmac = server.hmac.new
+
+        def capture_nonce(size):
+            nonce = original_nonce(size)
+            login_nonce.append(nonce)
+            return nonce
+
+        def pause_login_signature(key, message, digestmod):
+            if login_nonce and message.decode().split("\n")[2] == login_nonce[0]:
+                signing_started.set()
+                allow_signing.wait(3)
+            return original_hmac(key, message, digestmod)
+
+        def send_login():
+            login_result["response"] = self.request("POST", "/api/login", {
+                "username": "timeline-test-user",
+                "password": "synthetic-test-password",
+            })
+
+        def send_logout():
+            logout_started.set()
+            logout_result["response"] = self.request("POST", "/api/logout", cookie=cookie)
+            logout_done.set()
+
+        login_thread = threading.Thread(target=send_login)
+        logout_thread = threading.Thread(target=send_logout)
+        with patch("server.secrets.token_urlsafe", side_effect=capture_nonce), patch(
+                "server.hmac.new", side_effect=pause_login_signature):
+            login_thread.start()
+            self.assertTrue(signing_started.wait(2))
+            logout_thread.start()
+            self.assertTrue(logout_started.wait(1))
+            logout_finished_before_signing = logout_done.wait(0.2)
+            allow_signing.set()
+            login_thread.join(3)
+            logout_thread.join(3)
+
+        self.assertFalse(login_thread.is_alive())
+        self.assertFalse(logout_thread.is_alive())
+        self.assertFalse(logout_finished_before_signing)
+        self.assertEqual(login_result["response"][0], 200)
+        self.assertEqual(logout_result["response"][0], 200)
+
     def test_directory_sync_failure_does_not_claim_logout_succeeded(self):
         cookie = self.login().split(";", 1)[0]
         with patch("server.os.fsync", side_effect=[None, OSError("synthetic directory sync failure")]):
@@ -232,6 +288,7 @@ class SessionTests(unittest.TestCase):
     def test_login_fields_are_recognized_by_password_managers(self):
         parser = LoginInputs()
         parser.feed((Path(__file__).parents[1] / "public" / "index.html").read_text())
+        self.assertEqual(parser.login_form.get("method"), "post")
         self.assertEqual(parser.inputs["username"].get("autocomplete"), "username")
         self.assertEqual(parser.inputs["password"].get("type"), "password")
         self.assertEqual(parser.inputs["password"].get("name"), "password")
