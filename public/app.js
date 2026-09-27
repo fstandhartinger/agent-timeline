@@ -20,23 +20,31 @@
   };
   document.documentElement.dataset.theme=state.theme;
   const passwordInput=$('#password'),passwordToggle=$('#password-toggle');
-  if(!(window.CSS&&CSS.supports&&(CSS.supports('-webkit-text-security','disc')||CSS.supports('text-security','disc')))){
-    passwordInput.type='password';passwordInput.classList.remove('masked');
+  function concealPassword(){
+    passwordInput.type='password';
+    passwordToggle.setAttribute('aria-pressed','false');
+    passwordToggle.setAttribute('aria-label','Show password');
   }
   passwordToggle.addEventListener('click',()=>{
-    const show=passwordInput.classList.toggle('revealed');passwordInput.classList.toggle('masked',!show);
+    const show=passwordInput.type==='password';passwordInput.type=show?'text':'password';
     passwordToggle.setAttribute('aria-pressed',String(show));passwordToggle.setAttribute('aria-label',show?'Hide password':'Show password');
   });
 
-  function authView(ok){el.loginScreen.hidden=ok;el.app.hidden=!ok;}
+  function authView(ok){if(!ok)concealPassword();el.loginScreen.hidden=ok;el.app.hidden=!ok;}
   function setMessage(text){el.loginError.textContent=text||'';}
   async function checkSession(){
-    try{const r=await fetch('/api/session',{credentials:'same-origin',cache:'no-store'});if(r.ok){authView(true);await loadData();return;}}catch(_e){}
+    try{
+      const r=await fetch('/api/session',{credentials:'same-origin',cache:'no-store'});
+      if(r.ok){authView(true);await loadData();return;}
+      if(r.status===401){authView(false);return;}
+      setMessage('The session service is temporarily unavailable. Try again.');
+    }catch(_e){setMessage('Could not reach the timeline. Try again.');}
     authView(false);
   }
   el.loginForm.addEventListener('submit',async e=>{
     e.preventDefault();setMessage('Signing in…');
     const username=$('#username').value,password=$('#password').value;
+    concealPassword();
     try{
       const r=await fetch('/api/login',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password})});
       const data=await r.json();
@@ -44,7 +52,14 @@
       $('#password').value='';setMessage('');authView(true);await loadData();
     }catch(_err){setMessage('Could not reach the timeline. Try again.');}
   });
-  $('#logout').addEventListener('click',async()=>{try{await fetch('/api/logout',{method:'POST',credentials:'same-origin'});}catch(_e){}authView(false);});
+  $('#logout').addEventListener('click',async()=>{
+    try{
+      const r=await fetch('/api/logout',{method:'POST',credentials:'same-origin'});
+      if(r.status===401){authView(false);return;}
+      if(!r.ok){$('#source-status').textContent='Logout failed. You are still signed in.';return;}
+      authView(false);
+    }catch(_e){$('#source-status').textContent='Logout failed. You are still signed in.';}
+  });
   $('#theme-toggle').addEventListener('click',()=>{
     state.theme=state.theme==='dark'?'light':'dark';document.documentElement.dataset.theme=state.theme;
     localStorage.setItem('agent-theme',state.theme);draw();drawArea();

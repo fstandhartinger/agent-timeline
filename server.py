@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Small read-only API for the Agent Timeline; data is only served after login."""
+"""Authenticated API for the Agent Timeline's read-only activity view."""
 from __future__ import annotations
 
 import base64
@@ -9,7 +9,10 @@ import json
 import os
 import secrets
 import sqlite3
+import tempfile
+import threading
 import time
+from email.utils import formatdate
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
@@ -21,15 +24,14 @@ SESSION_SECRET = os.environ.get("AGENT_TIMELINE_SESSION_SECRET", "")
 HOST = os.environ.get("AGENT_TIMELINE_HOST", "127.0.0.1")
 PORT = int(os.environ.get("AGENT_TIMELINE_PORT", "8890"))
 COOKIE = "agent_timeline_session"
-SESSION_SECONDS = 10 * 60 * 60
+SESSION_SECONDS = 400 * 24 * 60 * 60
+SESSION_STATE_PATH = Path(os.path.expanduser(os.environ.get(
+    "AGENT_TIMELINE_SESSION_STATE", str(DB_PATH.with_name("session-state.json")))))
+SESSION_STATE_LOCK = threading.RLock()
 LOGIN_WINDOW = 15 * 60
 LOGIN_MAX = 7
 MAX_HISTORY_SECONDS = 50 * 365 * 86400
 ATTEMPTS: dict[str, list[int]] = {}
-
-if not PASSWORD or not SESSION_SECRET:
-    raise SystemExit("Agent Timeline requires its local environment file")
-
 
 def b64(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).decode("ascii").rstrip("=")
@@ -37,7 +39,8 @@ def b64(data: bytes) -> str:
 
 def sign_session(username: str, expires: int) -> str:
     nonce = secrets.token_urlsafe(10)
-    payload = f"{username}\n{expires}\n{nonce}".encode()
+    generation = session_generation()
+    payload = f"{username}\n{expires}\n{nonce}\n{generation}".encode()
     signature = hmac.new(SESSION_SECRET.encode(), payload, hashlib.sha256).digest()
     return b64(payload) + "." + b64(signature)
 
@@ -48,10 +51,90 @@ def valid_session(token: str) -> bool:
         payload = base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4))
         signature = base64.urlsafe_b64decode(sig + "=" * (-len(sig) % 4))
         expected = hmac.new(SESSION_SECRET.encode(), payload, hashlib.sha256).digest()
-        user, expires, _ = payload.decode("utf-8").split("\n", 2)
-        return hmac.compare_digest(signature, expected) and user == USERNAME and int(expires) > int(time.time())
+        fields = payload.decode("utf-8").split("\n")
+        if len(fields) == 3:
+            user, expires, _ = fields
+            generation = 0
+        elif len(fields) == 4:
+            user, expires, _, encoded_generation = fields
+            generation = int(encoded_generation)
+        else:
+            return False
+        expires_at = int(expires)
+        valid_signature = hmac.compare_digest(signature, expected)
     except Exception:
         return False
+    if not valid_signature or user != USERNAME or expires_at <= int(time.time()):
+        return False
+    return generation == session_generation()
+
+
+def session_generation() -> int:
+    with SESSION_STATE_LOCK:
+        state = json.loads(SESSION_STATE_PATH.read_text(encoding="utf-8"))
+        value = state.get("generation") if isinstance(state, dict) else None
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise ValueError("invalid session state")
+        return value
+
+
+def store_session_generation(generation: int) -> None:
+    SESSION_STATE_PATH.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    fd, temporary_name = tempfile.mkstemp(prefix=".session-state-", dir=SESSION_STATE_PATH.parent)
+    try:
+        os.fchmod(fd, 0o600)
+        state_file = os.fdopen(fd, "w", encoding="utf-8")
+        fd = None
+        with state_file:
+            json.dump({"generation": generation}, state_file)
+            state_file.flush()
+            os.fsync(state_file.fileno())
+        os.replace(temporary_name, SESSION_STATE_PATH)
+        try:
+            directory_fd = os.open(SESSION_STATE_PATH.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        except OSError:
+            # The file contents were synced before replacement. If a directory-sync failure
+            # loses the rename on a later restart, the missing state makes startup fail closed.
+            pass
+    except Exception:
+        if fd is not None:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        try:
+            os.unlink(temporary_name)
+        except OSError:
+            pass
+        raise
+
+
+def initialize_session_state() -> int:
+    with SESSION_STATE_LOCK:
+        try:
+            return session_generation()
+        except FileNotFoundError:
+            store_session_generation(0)
+            return 0
+
+
+def invalidate_sessions() -> None:
+    with SESSION_STATE_LOCK:
+        store_session_generation(session_generation() + 1)
+
+
+def session_cookie(token: str, expires: int) -> str:
+    return (f"{COOKIE}={token}; Path=/; Max-Age={SESSION_SECONDS}; "
+            f"Expires={formatdate(expires, usegmt=True)}; HttpOnly; Secure; SameSite=Lax")
+
+
+def expired_session_cookie() -> str:
+    return (f"{COOKIE}=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; "
+            "HttpOnly; Secure; SameSite=Lax")
 
 
 def db_read() -> sqlite3.Connection:
@@ -93,6 +176,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Robots-Tag", "noindex, nofollow, noarchive")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
+        refresh_cookie = getattr(self, "_refresh_cookie", None)
+        if refresh_cookie:
+            self.send_header("Set-Cookie", refresh_cookie)
         if headers:
             for name, value in headers.items(): self.send_header(name, value)
         self.end_headers()
@@ -107,14 +193,34 @@ class Handler(BaseHTTPRequestHandler):
     def authorized(self) -> bool:
         return valid_session(self.token())
 
+    def authorized_and_refresh(self) -> bool:
+        with SESSION_STATE_LOCK:
+            if not self.authorized():
+                return False
+            self._refresh_cookie = self.issue_session_cookie()
+            return True
+
+    def issue_session_cookie(self) -> str:
+        expires = int(time.time()) + SESSION_SECONDS
+        return session_cookie(sign_session(USERNAME, expires), expires)
+
     def do_GET(self):
+        self._refresh_cookie = None
         path = urlparse(self.path).path
         if path == "/healthz":
             return self.send_json(200, {"ok": True})
         if path == "/api/session":
-            if not self.authorized(): return self.send_json(401, {"error": "login required"})
+            try:
+                authorized = self.authorized_and_refresh()
+            except (OSError, ValueError):
+                return self.send_json(503, {"error": "session service is temporarily unavailable"})
+            if not authorized: return self.send_json(401, {"error": "login required"})
             return self.send_json(200, {"ok": True, "user": USERNAME})
-        if not self.authorized(): return self.send_json(401, {"error": "login required"})
+        try:
+            authorized = self.authorized_and_refresh()
+        except (OSError, ValueError):
+            return self.send_json(503, {"error": "session service is temporarily unavailable"})
+        if not authorized: return self.send_json(401, {"error": "login required"})
         if path == "/api/stats":
             return self.stats()
         if path == "/api/agents":
@@ -122,13 +228,24 @@ class Handler(BaseHTTPRequestHandler):
         return self.send_json(404, {"error": "not found"})
 
     def do_POST(self):
+        self._refresh_cookie = None
         path = urlparse(self.path).path
         if path == "/api/login":
             return self.login()
         if path == "/api/logout":
-            if not self.authorized(): return self.send_json(401, {"error": "login required"})
-            return self.send_json(200, {"ok": True}, {
-                "Set-Cookie": f"{COOKIE}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Strict"})
+            with SESSION_STATE_LOCK:
+                try:
+                    authorized = self.authorized()
+                except (OSError, ValueError):
+                    return self.send_json(503, {"error": "session service is temporarily unavailable"})
+                if not authorized:
+                    return self.send_json(401, {"error": "login required"}, {
+                        "Set-Cookie": expired_session_cookie()})
+                try:
+                    invalidate_sessions()
+                except (OSError, ValueError):
+                    return self.send_json(503, {"error": "logout could not be completed"})
+            return self.send_json(200, {"ok": True}, {"Set-Cookie": expired_session_cookie()})
         return self.send_json(404, {"error": "not found"})
 
     def login(self):
@@ -153,10 +270,13 @@ class Handler(BaseHTTPRequestHandler):
         pass_ok = hmac.compare_digest(password, PASSWORD)
         if user_ok and pass_ok:
             ATTEMPTS.pop(key, None)
-            expires = int(time.time()) + SESSION_SECONDS
-            token = sign_session(USERNAME, expires)
+            try:
+                expires = int(time.time()) + SESSION_SECONDS
+                token = sign_session(USERNAME, expires)
+            except (OSError, ValueError):
+                return self.send_json(503, {"error": "session service is temporarily unavailable"})
             return self.send_json(200, {"ok": True, "user": USERNAME}, {
-                "Set-Cookie": f"{COOKIE}={token}; Path=/; Max-Age={SESSION_SECONDS}; HttpOnly; Secure; SameSite=Strict"})
+                "Set-Cookie": session_cookie(token, expires)})
         attempts.append(int(time.time()))
         ATTEMPTS[key] = attempts
         return self.send_json(401, {"error": "Incorrect username or password"})
@@ -225,7 +345,21 @@ def visible_rows(db: sqlite3.Connection, lower: int, upper: int):
     return out
 
 
-def main():
+def main(argv: list[str] | None = None):
+    import sys
+
+    args = sys.argv[1:] if argv is None else argv
+    if args == ["--initialize-session-state"]:
+        initialize_session_state()
+        return
+    if args:
+        raise SystemExit("Unknown Agent Timeline server option")
+    if not PASSWORD or not SESSION_SECRET:
+        raise SystemExit("Agent Timeline requires its local environment file")
+    try:
+        session_generation()
+    except (OSError, ValueError):
+        raise SystemExit("Agent Timeline session state is unavailable; restore it before starting")
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     server.daemon_threads = True
     server.serve_forever()

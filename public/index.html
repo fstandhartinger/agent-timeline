@@ -12,7 +12,7 @@
 <body>
   <div id="login-screen" class="login-screen">
     <div class="login-orbit orbit-a"></div><div class="login-orbit orbit-b"></div>
-    <form id="login-form" class="login-card">
+    <form id="login-form" class="login-card" autocomplete="on">
       <div class="brand-mark"><span class="brand-dot"></span><span>AGENT ATLAS</span></div>
       <div class="eyebrow">PRIVATE WORKSPACE</div>
       <h1>Follow the work.</h1>
@@ -20,7 +20,7 @@
       <label for="username">Username</label>
       <input id="username" name="username" type="text" placeholder="Your username" autocomplete="username" required>
       <label for="password">Password</label>
-      <div class="password-input-wrap"><input id="password" name="agent-timeline-password" type="text" class="masked" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-form-type="other" data-1p-ignore data-lpignore="true" data-bwignore required><button id="password-toggle" class="password-toggle" type="button" aria-label="Show password" aria-pressed="false">◉</button></div>
+      <div class="password-input-wrap"><input id="password" name="password" type="password" autocomplete="current-password" required><button id="password-toggle" class="password-toggle" type="button" aria-label="Show password" aria-pressed="false">◉</button></div>
       <div id="login-error" class="login-error" role="alert"></div>
       <button type="submit" class="primary-button">Enter timeline <span aria-hidden="true">↗</span></button>
       <div class="login-lock"><span>●</span> End-to-end TLS · Read-only activity</div>

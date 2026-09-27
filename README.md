@@ -29,15 +29,18 @@ cp config.example.json config.json
 python3 collector.py --db "$HOME/.local/share/agent-timeline/agents.sqlite3"
 ```
 
-Set credentials in your shell or a private environment file, then start the API. It opens the SQLite file in read-only mode and requires a username, password, and independent session-signing secret.
+Set credentials in your shell or a private environment file, then start the API. It opens the SQLite file in read-only mode and requires a username, password, and independent session-signing secret. Keep the signing secret stable in Coolify and the API's persistent environment; do not generate it at process startup or change it during a redeploy, because existing sessions are signed with it.
 
 ```sh
 export AGENT_TIMELINE_USERNAME=admin
 export AGENT_TIMELINE_PASSWORD='replace-with-a-long-random-password'
 export AGENT_TIMELINE_SESSION_SECRET='replace-with-an-independent-random-secret'
 export AGENT_TIMELINE_DB="$HOME/.local/share/agent-timeline/agents.sqlite3"
+python3 server.py --initialize-session-state
 AGENT_TIMELINE_HOST=127.0.0.1 AGENT_TIMELINE_PORT=8890 python3 server.py
 ```
+
+Initialize the persistent session state once before first startup. Normal startup fails closed if the state file is missing or corrupt; do not recreate it after a logout unless you first change the session secret in both Coolify and the API environment, because that signs out every old cookie. Keep the secret unchanged for normal redeploys. If rolling back to API code that predates generation checks, change the secret in both places before starting it.
 
 In another terminal, build and run the web interface. Nginx serves the static files and proxies API requests to the read-only API:
 
@@ -50,7 +53,7 @@ docker run --rm -p 8080:80 \
 
 On Linux, add `--add-host=host.docker.internal:host-gateway` to `docker run` if your Docker version does not provide that name. Open `http://localhost:8080`. For production, place the web container behind HTTPS and set `AGENT_TIMELINE_API_UPSTREAM` to a private host address that is reachable only from that container.
 
-The Docker image contains only Nginx and the static interface. The collector, SQLite database, and API stay outside the web container; the API opens the database read-only. Never expose the API port directly to the public internet.
+The Docker image contains only Nginx and the static interface. The collector, SQLite database, and API stay outside the web container; the API opens the database read-only and writes a small session-revocation file on logout. Never expose the API port directly to the public internet.
 
 ## Configuration
 
@@ -58,6 +61,7 @@ The Docker image contains only Nginx and the static interface. The collector, SQ
 - `AGENT_TIMELINE_HOME`: home directory used to expand `~` in configured paths.
 - `AGENT_TIMELINE_DB`: SQLite file path; overrides `database` in the JSON config.
 - `AGENT_TIMELINE_USERNAME`, `AGENT_TIMELINE_PASSWORD`, `AGENT_TIMELINE_SESSION_SECRET`: API login and signing values.
+- `AGENT_TIMELINE_SESSION_STATE`: persistent path for the logout revocation generation; defaults to `session-state.json` beside the database. The API service account must be able to write in its parent directory. Keep this file across deployments and restarts.
 - `AGENT_TIMELINE_HOST`, `AGENT_TIMELINE_PORT`: API bind address and port.
 - `AGENT_TIMELINE_API_UPSTREAM`: private API URL Nginx proxies to.
 
@@ -65,7 +69,7 @@ Optional model-based classification is off unless `classifier.model` is set in t
 
 ## Privacy and access
 
-The API only reads the SQLite snapshot. Login cookies are HTTP-only, secure, and same-site; login attempts are rate-limited. Responses include `noindex` headers and the site has a disallowing `robots.txt`. Keep the app behind HTTPS. This is a single-user private dashboard, not a public activity feed or multi-user service.
+The API reads the SQLite snapshot without modifying it. Signed login cookies are HTTP-only, secure, `SameSite=Lax`, and valid for 400 days; each authenticated visit renews that lifetime. Logout revokes all browser sessions for this single-user account. Login attempts are rate-limited. Responses include `noindex` headers and the site has a disallowing `robots.txt`. Keep the app behind HTTPS. This is a single-user private dashboard, not a public activity feed or multi-user service.
 
 ## License
 
