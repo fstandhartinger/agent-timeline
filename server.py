@@ -25,6 +25,7 @@ HOST = os.environ.get("AGENT_TIMELINE_HOST", "127.0.0.1")
 PORT = int(os.environ.get("AGENT_TIMELINE_PORT", "8890"))
 COOKIE = "agent_timeline_session"
 SESSION_SECONDS = 400 * 24 * 60 * 60
+LEGACY_SESSION_SECONDS = 10 * 60 * 60
 SESSION_STATE_PATH = Path(os.path.expanduser(os.environ.get(
     "AGENT_TIMELINE_SESSION_STATE", str(DB_PATH.with_name("session-state.json")))))
 SESSION_STATE_LOCK = threading.RLock()
@@ -55,9 +56,17 @@ def valid_session(token: str) -> bool:
         if len(fields) == 3:
             user, expires, _ = fields
             generation = 0
+            issued_at_ns = (int(expires) - LEGACY_SESSION_SECONDS) * 1_000_000_000
         elif len(fields) == 4:
             user, expires, _, encoded_generation = fields
-            generation = int(encoded_generation)
+            encoded_value = int(encoded_generation)
+            if encoded_value >= 1_000_000_000_000:
+                # Earlier deployments used an issuance timestamp as the fourth field.
+                generation = 0
+                issued_at_ns = encoded_value
+            else:
+                generation = encoded_value
+                issued_at_ns = None
         else:
             return False
         expires_at = int(expires)
@@ -66,19 +75,32 @@ def valid_session(token: str) -> bool:
         return False
     if not valid_signature or user != USERNAME or expires_at <= int(time.time()):
         return False
-    return generation == session_generation()
+    state = read_session_state()
+    return (generation == state["generation"]
+            and (issued_at_ns is None or issued_at_ns > state["legacy_invalid_before_ns"]))
+
+
+def read_session_state() -> dict[str, int]:
+    with SESSION_STATE_LOCK:
+        state = json.loads(SESSION_STATE_PATH.read_text(encoding="utf-8"))
+        if not isinstance(state, dict):
+            raise ValueError("invalid session state")
+        generation = state.get("generation")
+        legacy_invalid_before_ns = state.get("legacy_invalid_before_ns", 0)
+        if "invalid_before_ns" in state:
+            raise ValueError("session state requires migration")
+        if (not isinstance(generation, int) or isinstance(generation, bool) or generation < 0
+                or not isinstance(legacy_invalid_before_ns, int)
+                or isinstance(legacy_invalid_before_ns, bool) or legacy_invalid_before_ns < 0):
+            raise ValueError("invalid session state")
+        return {"generation": generation, "legacy_invalid_before_ns": legacy_invalid_before_ns}
 
 
 def session_generation() -> int:
-    with SESSION_STATE_LOCK:
-        state = json.loads(SESSION_STATE_PATH.read_text(encoding="utf-8"))
-        value = state.get("generation") if isinstance(state, dict) else None
-        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
-            raise ValueError("invalid session state")
-        return value
+    return read_session_state()["generation"]
 
 
-def store_session_generation(generation: int) -> None:
+def store_session_state(generation: int, legacy_invalid_before_ns: int) -> None:
     SESSION_STATE_PATH.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     fd, temporary_name = tempfile.mkstemp(prefix=".session-state-", dir=SESSION_STATE_PATH.parent)
     try:
@@ -86,20 +108,18 @@ def store_session_generation(generation: int) -> None:
         state_file = os.fdopen(fd, "w", encoding="utf-8")
         fd = None
         with state_file:
-            json.dump({"generation": generation}, state_file)
+            json.dump({
+                "generation": generation,
+                "legacy_invalid_before_ns": legacy_invalid_before_ns,
+            }, state_file)
             state_file.flush()
             os.fsync(state_file.fileno())
         os.replace(temporary_name, SESSION_STATE_PATH)
+        directory_fd = os.open(SESSION_STATE_PATH.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
         try:
-            directory_fd = os.open(SESSION_STATE_PATH.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-            try:
-                os.fsync(directory_fd)
-            finally:
-                os.close(directory_fd)
-        except OSError:
-            # The file contents were synced before replacement. If a directory-sync failure
-            # loses the rename on a later restart, the missing state makes startup fail closed.
-            pass
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
     except Exception:
         if fd is not None:
             try:
@@ -116,15 +136,24 @@ def store_session_generation(generation: int) -> None:
 def initialize_session_state() -> int:
     with SESSION_STATE_LOCK:
         try:
-            return session_generation()
+            state = json.loads(SESSION_STATE_PATH.read_text(encoding="utf-8"))
         except FileNotFoundError:
-            store_session_generation(0)
+            store_session_state(0, 0)
             return 0
+        if isinstance(state, dict) and "invalid_before_ns" in state and "generation" not in state:
+            legacy_invalid_before_ns = state.get("invalid_before_ns")
+            if (not isinstance(legacy_invalid_before_ns, int)
+                    or isinstance(legacy_invalid_before_ns, bool) or legacy_invalid_before_ns < 0):
+                raise ValueError("invalid legacy session state")
+            store_session_state(0, legacy_invalid_before_ns)
+            return 0
+        return read_session_state()["generation"]
 
 
 def invalidate_sessions() -> None:
     with SESSION_STATE_LOCK:
-        store_session_generation(session_generation() + 1)
+        state = read_session_state()
+        store_session_state(state["generation"] + 1, state["legacy_invalid_before_ns"])
 
 
 def session_cookie(token: str, expires: int) -> str:
@@ -350,7 +379,13 @@ def main(argv: list[str] | None = None):
 
     args = sys.argv[1:] if argv is None else argv
     if args == ["--initialize-session-state"]:
-        initialize_session_state()
+        try:
+            initialize_session_state()
+        except (OSError, ValueError):
+            raise SystemExit(
+                "Agent Timeline session state cannot be initialized; restore a valid state or "
+                "rotate its signing secret before creating a fresh one"
+            ) from None
         return
     if args:
         raise SystemExit("Unknown Agent Timeline server option")

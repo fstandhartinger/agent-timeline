@@ -56,9 +56,9 @@
     try{
       const r=await fetch('/api/logout',{method:'POST',credentials:'same-origin'});
       if(r.status===401){authView(false);return;}
-      if(!r.ok){$('#source-status').textContent='Logout failed. You are still signed in.';return;}
+      if(!r.ok){$('#source-status').textContent='Logout failed: the result could not be confirmed. Please try again.';return;}
       authView(false);
-    }catch(_e){$('#source-status').textContent='Logout failed. You are still signed in.';}
+    }catch(_e){$('#source-status').textContent='Logout failed: the result could not be confirmed. Please try again.';}
   });
   $('#theme-toggle').addEventListener('click',()=>{
     state.theme=state.theme==='dark'?'light':'dark';document.documentElement.dataset.theme=state.theme;

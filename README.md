@@ -40,7 +40,7 @@ python3 server.py --initialize-session-state
 AGENT_TIMELINE_HOST=127.0.0.1 AGENT_TIMELINE_PORT=8890 python3 server.py
 ```
 
-Initialize the persistent session state once before first startup. Normal startup fails closed if the state file is missing or corrupt; do not recreate it after a logout unless you first change the session secret in both Coolify and the API environment, because that signs out every old cookie. Keep the secret unchanged for normal redeploys. If rolling back to API code that predates generation checks, change the secret in both places before starting it.
+Initialize the persistent session state once before first startup. The initializer migrates the earlier timestamp-cutoff state format while preserving its revoked-cookie cutoff. Normal startup fails closed if the state file is missing or corrupt. Never restore an older copy or recreate this file after a logout: first change the session secret in both Coolify and the API environment, then initialize a fresh state file, which signs out every old cookie. Keep the secret unchanged for normal redeploys. If rolling back to API code that predates generation checks, change the secret in both places before starting it.
 
 In another terminal, build and run the web interface. Nginx serves the static files and proxies API requests to the read-only API:
 

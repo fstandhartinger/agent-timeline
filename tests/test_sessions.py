@@ -89,6 +89,12 @@ class SessionTests(unittest.TestCase):
         token = server.b64(payload) + "." + server.b64(signature)
         return f"{server.COOKIE}={token}"
 
+    def timestamp_cookie(self, expires, issued_at_ns):
+        payload = f"timeline-test-user\n{expires}\nlegacy-nonce\n{issued_at_ns}".encode()
+        signature = hmac.new(server.SESSION_SECRET.encode(), payload, hashlib.sha256).digest()
+        token = server.b64(payload) + "." + server.b64(signature)
+        return f"{server.COOKIE}={token}"
+
     def assert_persistent_cookie(self, cookie, max_age):
         parts = [part.strip() for part in cookie.split(";")]
         attrs = {part.partition("=")[0].lower(): part.partition("=")[2] for part in parts[1:]}
@@ -161,15 +167,31 @@ class SessionTests(unittest.TestCase):
         })
         self.assertEqual(status, 503)
         self.assertNotIn("Set-Cookie", headers)
-        status, headers, _ = self.request("POST", "/api/logout", cookie=cookie)
-        self.assertEqual(status, 503)
-        self.assertNotIn("Set-Cookie", headers)
-        status, headers, _ = self.request("POST", "/api/login", {
-            "username": "timeline-test-user",
-            "password": "synthetic-test-password",
+
+    def test_timestamp_cutoff_state_migrates_without_reviving_revoked_tokens(self):
+        now = int(server.time.time())
+        cutoff = server.time.time_ns()
+        server.SESSION_STATE_PATH.write_text(json.dumps({"invalid_before_ns": cutoff}), encoding="utf-8")
+
+        self.assertEqual(server.initialize_session_state(), 0)
+        migrated = json.loads(server.SESSION_STATE_PATH.read_text(encoding="utf-8"))
+        self.assertEqual(migrated["generation"], 0)
+        self.assertEqual(migrated["legacy_invalid_before_ns"], cutoff)
+        self.assertEqual(server.SESSION_STATE_PATH.stat().st_mode & 0o777, 0o600)
+
+        revoked_three_field = self.legacy_cookie(now + 600).split("=", 1)[1]
+        revoked_timestamp = self.timestamp_cookie(now + 600, cutoff).split("=", 1)[1]
+        valid_timestamp = self.timestamp_cookie(now + 600, cutoff + 1).split("=", 1)[1]
+        self.assertFalse(server.valid_session(revoked_three_field))
+        self.assertFalse(server.valid_session(revoked_timestamp))
+        self.assertTrue(server.valid_session(valid_timestamp))
+
+        server.invalidate_sessions()
+        self.assertEqual(json.loads(server.SESSION_STATE_PATH.read_text(encoding="utf-8")), {
+            "generation": 1,
+            "legacy_invalid_before_ns": cutoff,
         })
-        self.assertEqual(status, 503)
-        self.assertNotIn("Set-Cookie", headers)
+        self.assertFalse(server.valid_session(valid_timestamp))
 
     def test_failed_logout_keeps_current_cookie_and_does_not_claim_success(self):
         cookie = self.login().split(";", 1)[0]
@@ -180,12 +202,12 @@ class SessionTests(unittest.TestCase):
         status, _, _ = self.request("GET", "/api/session", cookie=cookie)
         self.assertEqual(status, 200)
 
-    def test_directory_sync_failure_after_replacement_completes_logout(self):
+    def test_directory_sync_failure_does_not_claim_logout_succeeded(self):
         cookie = self.login().split(";", 1)[0]
         with patch("server.os.fsync", side_effect=[None, OSError("synthetic directory sync failure")]):
             status, headers, _ = self.request("POST", "/api/logout", cookie=cookie)
-        self.assertEqual(status, 200)
-        self.assertIn("max-age=0", headers["Set-Cookie"].lower())
+        self.assertEqual(status, 503)
+        self.assertNotIn("Set-Cookie", headers)
         self.assertEqual(server.session_generation(), 1)
         status, _, _ = self.request("GET", "/api/session", cookie=cookie)
         self.assertEqual(status, 401)
