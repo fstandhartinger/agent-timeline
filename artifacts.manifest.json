@@ -1,0 +1,150 @@
+{
+  "surface": "app:agent-timeline",
+  "items": {
+    "app": {
+      "id": "768f4c",
+      "kind": "app",
+      "title": "Agenten-Zeitleiste",
+      "summary": "Zeigt aufgezeichnete Agentensitzungen über die Zeit. Themen und Verzweigungen ordnen zusammengehörige Arbeit.",
+      "parent": null,
+      "url": "https://agent-timeline.app.mintapis.com",
+      "selector": ".topbar",
+      "refs": [
+        {
+          "kind": "code",
+          "target": "github:fstandhartinger/agent-timeline@HEAD:public/index.html#L31",
+          "label": "UI-Quelltext"
+        }
+      ],
+      "links": [],
+      "access": "internal"
+    },
+    "agents": {
+      "id": "ad1829",
+      "kind": "card",
+      "title": "Agenten im Ausschnitt",
+      "summary": "Zählt Agenten im gewählten Zeitfenster. Die Zeitwahl bestimmt den betrachteten Ausschnitt.",
+      "parent": "768f4c",
+      "url": "https://agent-timeline.app.mintapis.com",
+      "selector": ".metric-card:nth-child(1)",
+      "refs": [
+        {
+          "kind": "code",
+          "target": "github:fstandhartinger/agent-timeline@HEAD:public/index.html#L44",
+          "label": "UI-Quelltext"
+        }
+      ],
+      "links": [],
+      "access": "internal"
+    },
+    "links": {
+      "id": "fc4e9e",
+      "kind": "card",
+      "title": "Verbindungen der Sitzungen",
+      "summary": "Zählt aufgezeichnete Beziehungen zwischen Eltern- und Kindagenten. Die Zahl bezieht sich auf die aktuelle Ansicht.",
+      "parent": "768f4c",
+      "url": "https://agent-timeline.app.mintapis.com",
+      "selector": ".metric-card:nth-child(2)",
+      "refs": [
+        {
+          "kind": "code",
+          "target": "github:fstandhartinger/agent-timeline@HEAD:public/index.html#L44",
+          "label": "UI-Quelltext"
+        }
+      ],
+      "links": [],
+      "access": "internal"
+    },
+    "running": {
+      "id": "1e02de",
+      "kind": "card",
+      "title": "Aktuell laufende Agenten",
+      "summary": "Zeigt die als laufend erkannten Agenten. Grundlage ist die zuletzt erfasste Prozessprobe.",
+      "parent": "768f4c",
+      "url": "https://agent-timeline.app.mintapis.com",
+      "selector": ".metric-card:nth-child(3)",
+      "refs": [
+        {
+          "kind": "code",
+          "target": "github:fstandhartinger/agent-timeline@HEAD:public/index.html#L44",
+          "label": "UI-Quelltext"
+        }
+      ],
+      "links": [],
+      "access": "internal"
+    },
+    "projects": {
+      "id": "97fef5",
+      "kind": "card",
+      "title": "Teilprojekte",
+      "summary": "Zählt Teilprojekte im gewählten Ausschnitt. Der Erfassungszeitpunkt steht unter der Zahl.",
+      "parent": "768f4c",
+      "url": "https://agent-timeline.app.mintapis.com",
+      "selector": ".metric-card:nth-child(4)",
+      "refs": [
+        {
+          "kind": "code",
+          "target": "github:fstandhartinger/agent-timeline@HEAD:public/index.html#L44",
+          "label": "UI-Quelltext"
+        }
+      ],
+      "links": [],
+      "access": "internal"
+    },
+    "activity": {
+      "id": "53527a",
+      "kind": "panel",
+      "title": "Gleichzeitige Aktivität",
+      "summary": "Zeigt die Zahl gleichzeitig aktiver Agenten im Zeitverlauf. Farben unterscheiden die zugeordneten Projekte.",
+      "parent": "768f4c",
+      "url": "https://agent-timeline.app.mintapis.com",
+      "selector": ".activity-card",
+      "refs": [
+        {
+          "kind": "code",
+          "target": "github:fstandhartinger/agent-timeline@HEAD:public/index.html#L50",
+          "label": "UI-Quelltext"
+        }
+      ],
+      "links": [],
+      "access": "internal"
+    },
+    "lanes": {
+      "id": "a419c2",
+      "kind": "panel",
+      "title": "Themenfilter",
+      "summary": "Listet die Themenbahnen der Zeitleiste. Die Auswahl grenzt die sichtbaren Sitzungen ein.",
+      "parent": "768f4c",
+      "url": "https://agent-timeline.app.mintapis.com",
+      "selector": ".legend-panel",
+      "refs": [
+        {
+          "kind": "code",
+          "target": "github:fstandhartinger/agent-timeline@HEAD:public/index.html#L67",
+          "label": "UI-Quelltext"
+        }
+      ],
+      "links": [],
+      "access": "internal"
+    },
+    "tree": {
+      "id": "364360",
+      "kind": "panel",
+      "title": "Sitzungen und Verzweigungen",
+      "summary": "Stellt Agentensitzungen als Zeitbalken dar. Verbindungen zeigen aufgezeichnete Eltern-Kind-Beziehungen.",
+      "parent": "768f4c",
+      "url": "https://agent-timeline.app.mintapis.com",
+      "selector": ".timeline-panel",
+      "refs": [
+        {
+          "kind": "code",
+          "target": "github:fstandhartinger/agent-timeline@HEAD:public/index.html#L74",
+          "label": "UI-Quelltext"
+        }
+      ],
+      "links": [],
+      "access": "internal"
+    }
+  },
+  "sync_source": "artifacts.manifest.json"
+}
